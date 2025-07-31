@@ -25,7 +25,7 @@ function predictMarkov(history) {
   const last = history[history.length - 1];
   const nextMap = transitions[last] || {};
   const prediction = Object.entries(nextMap).sort((a, b) => b[1] - a[1])[0];
-  return prediction ? prediction[0] : 'Xỉu';
+  return prediction ? prediction[0] : 'x';
 }
 
 function predictNPattern(history, minLength = 3, maxLength = 6) {
@@ -46,7 +46,7 @@ function predictNPattern(history, minLength = 3, maxLength = 6) {
       return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
     }
   }
-  return 'Xỉu';
+  return 'x';
 }
 
 function updatePatternHistory(char) {
@@ -67,8 +67,9 @@ app.get('/api/taixiu/lucky', async (req, res) => {
 
     const sorted = data.sort((a, b) => b.SessionId - a.SessionId);
     const latest = sorted[0];
-    const dice = [latest.Dice1, latest.Dice2, latest.Dice3];
-    const sum = dice.reduce((a, b) => a + b, 0);
+
+    const dice = [latest.FirstDice, latest.SecondDice, latest.ThirdDice];
+    const sum = latest.DiceSum || dice.reduce((a, b) => a + b, 0);
     const ket_qua = getTaiXiu(sum);
     const patternChar = ket_qua === "Tài" ? "t" : "x";
 
@@ -82,13 +83,14 @@ app.get('/api/taixiu/lucky', async (req, res) => {
     res.json({
       id: "binhtool90",
       Phien: latest.SessionId,
-      Xuc_xac_1: latest.Dice1,
-      Xuc_xac_2: latest.Dice2,
-      Xuc_xac_3: latest.Dice3,
+      Xuc_xac_1: latest.FirstDice,
+      Xuc_xac_2: latest.SecondDice,
+      Xuc_xac_3: latest.ThirdDice,
       Tong: sum,
       Ket_qua: ket_qua,
       Pattern: patternHistory,
-      Du_doan: du_doan
+      Du_doan: du_doan,
+      MD5: latest.MD5Key || ""
     });
 
   } catch (error) {
