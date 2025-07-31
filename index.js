@@ -1,81 +1,103 @@
-const express = require("express");
-const axios = require("axios");
+import express from 'express';
+import fetch from 'node-fetch';
+import cors from 'cors';
 
 const app = express();
-const PORT = 3000;
+app.use(cors());
 
-const API_URL = "https://taixiumd5.system32-cloudfare-356783752985678522.monster/api/md5luckydice/GetSoiCau";
+const API_URL = 'https://taixiu1.gsum01.com/api/luckydice1/GetSoiCau';
 
-// Xác định tài/xỉu
-const getTaiXiu = sum => (sum >= 11 ? 't' : 'x');
+// Pattern lưu tối đa 20 kết quả gần nhất
+let patternHistory = "";
 
-// Tạo pattern từ dữ liệu lịch sử
-const buildPattern = data => data.map(v => getTaiXiu(v.DiceSum)).join('');
-
-// Dự đoán bằng Markov Chain nâng cao
-function predictNext(pattern) {
-  const order = 3;
-  const map = {};
-
-  for (let i = 0; i < pattern.length - order; i++) {
-    const prefix = pattern.slice(i, i + order);
-    const next = pattern[i + order];
-    if (!map[prefix]) map[prefix] = { t: 0, x: 0 };
-    map[prefix][next]++;
-  }
-
-  const last = pattern.slice(-order);
-  const predict = map[last];
-  if (!predict) return { ketqua: 'Không đủ dữ liệu', tin_cay: "0%", phan_tich: {} };
-
-  const result = predict.t > predict.x ? 't' : 'x';
-  const confidence = ((Math.max(predict.t, predict.x) / (predict.t + predict.x)) * 100).toFixed(1);
-
-  return {
-    ketqua: result,
-    tin_cay: confidence + '%',
-    phan_tich: predict
-  };
+function getTaiXiu(sum) {
+  return sum >= 11 ? 'Tài' : 'Xỉu';
 }
 
-// Endpoint API trả về JSON
-app.get("/api/taixiu", async (req, res) => {
-  try {
-    const response = await axios.get(API_URL);
-    const list = response.data;
+function predictMarkov(history) {
+  const transitions = {};
+  for (let i = 0; i < history.length - 1; i++) {
+    const curr = history[i];
+    const next = history[i + 1];
+    if (!transitions[curr]) transitions[curr] = {};
+    transitions[curr][next] = (transitions[curr][next] || 0) + 1;
+  }
+  const last = history[history.length - 1];
+  const nextMap = transitions[last] || {};
+  const prediction = Object.entries(nextMap).sort((a, b) => b[1] - a[1])[0];
+  return prediction ? prediction[0] : 'Xỉu';
+}
 
-    if (!Array.isArray(list)) {
-      return res.status(500).json({ error: "Dữ liệu API không hợp lệ!" });
+function predictNPattern(history, minLength = 3, maxLength = 6) {
+  for (let len = maxLength; len >= minLength; len--) {
+    const pattern = history.slice(-len).join('');
+    const matches = [];
+    for (let i = 0; i < history.length - len; i++) {
+      const window = history.slice(i, i + len).join('');
+      if (window === pattern && history[i + len]) {
+        matches.push(history[i + len]);
+      }
+    }
+    if (matches.length > 0) {
+      const counts = matches.reduce((acc, val) => {
+        acc[val] = (acc[val] || 0) + 1;
+        return acc;
+      }, {});
+      return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    }
+  }
+  return 'Xỉu';
+}
+
+function updatePatternHistory(char) {
+  if (patternHistory.length >= 20) {
+    patternHistory = patternHistory.slice(1);
+  }
+  patternHistory += char;
+}
+
+app.get('/api/taixiu/lucky', async (req, res) => {
+  try {
+    const response = await fetch(API_URL);
+    const data = await response.json();
+
+    if (!Array.isArray(data) || data.length === 0) {
+      return res.status(500).json({ error: 'Không có dữ liệu từ API gốc' });
     }
 
-    const pattern = buildPattern(list);
-    const current = list[0];
-    const prediction = predictNext(pattern);
+    const sorted = data.sort((a, b) => b.SessionId - a.SessionId);
+    const latest = sorted[0];
+    const dice = [latest.Dice1, latest.Dice2, latest.Dice3];
+    const sum = dice.reduce((a, b) => a + b, 0);
+    const ket_qua = getTaiXiu(sum);
+    const patternChar = ket_qua === "Tài" ? "t" : "x";
+
+    updatePatternHistory(patternChar);
+
+    const historyPatternArray = sorted.map(i => getTaiXiu(i.DiceSum) === 'Tài' ? 't' : 'x').reverse();
+    const markov = predictMarkov(historyPatternArray);
+    const npattern = predictNPattern(historyPatternArray);
+    const du_doan = markov === npattern ? (markov === 't' ? "Tài" : "Xỉu") : (npattern === 't' ? "Tài" : "Xỉu");
 
     res.json({
-      version: current.SessionId + 1,
-      pattern,
-      last_result: {
-        session_id: current.SessionId,
-        first_dice: current.FirstDice,
-        second_dice: current.SecondDice,
-        third_dice: current.ThirdDice,
-        dice_sum: current.DiceSum,
-        bet_side: getTaiXiu(current.DiceSum) === 't' ? 'TÀI' : 'XỈU'
-      },
-      prediction: {
-        result: prediction.ketqua === 't' ? 'TÀI' : 'XỈU',
-        confidence: prediction.tin_cay,
-        analysis: prediction.phan_tich
-      }
+      id: "binhtool90",
+      Phien: latest.SessionId,
+      Xuc_xac_1: latest.Dice1,
+      Xuc_xac_2: latest.Dice2,
+      Xuc_xac_3: latest.Dice3,
+      Tong: sum,
+      Ket_qua: ket_qua,
+      Pattern: patternHistory,
+      Du_doan: du_doan
     });
 
-  } catch (err) {
-    res.status(500).json({ error: "Lỗi khi gọi API: " + err.message });
+  } catch (error) {
+    console.error('Lỗi fetch hoặc xử lý:', error.message);
+    res.status(500).json({ error: 'Lỗi nội bộ máy chủ' });
   }
 });
 
-// Khởi chạy server
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`✅ Server đang chạy tại http://localhost:${PORT}/api/taixiu`);
+  console.log(`✅ Server chạy tại http://localhost:${PORT}`);
 });
